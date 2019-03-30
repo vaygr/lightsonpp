@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # lightson++
 
+# based on:
+# -
 # Copyright (c) 2018 spinal.by at gmail com
 # Copyright (c) 2014 devkral at web de
 # url: https://github.com/devkral/lightsonplus
-
-#based on
+# -
 # Copyright (c) 2011 iye.cba at gmail com
 # url: https://github.com/iye/lightsOn
 # This script is licensed under GNU GPL version 2.0 or above
@@ -17,7 +18,7 @@
 # One of {x, k, gnome-}screensaver must be installed.
 
 # HOW TO USE: 
-# "./lightson+ -d 2 &" will check every 2 minutes if Mplayer, VLC, Firefox or
+# "./lightson++ -d 2 &" will check every 2 minutes if Mplayer, VLC, Firefox or
 # Chromium are fullscreen and delay screensaver and Power Management if so.
 # If you don't pass an argument, the checks are done every minute.
 
@@ -34,11 +35,27 @@ html5_detection=1
 steam_detection=0
 minitube_detection=0
 audio_detection=0
+webcam_detection=1
 #minload=1.5
 delay=1
 
 # realdisp
 realdisp=`echo "$DISPLAY" | cut -d. -f1`
+
+procps() {
+  pgrep -f "$1" | wc -l
+}
+
+procps_ng() {
+  pgrep -fc "$1"
+}
+
+# pgrep
+if pgrep -V | grep -q "procps-ng"; then
+  psgrep="procps_ng"
+else
+  psgrep="procps"
+fi
 
 inhibitfile="/tmp/lightsoninhibit-$UID-$realdisp"
 pidfile="/tmp/lightson-$UID-$realdisp.pid"
@@ -80,22 +97,30 @@ pidremove() {
 pidcreate
 trap "pidremove" EXIT
 
+if [ -e "/usr/bin/xvinfo" ]; then
+    xinfo="xvinfo"
+elif [ -e "/usr/bin/xdpyinfo" ]; then
+    xinfo="xdpyinfo"
+else
+    die "No xvinfo/xdpyinfo found (needed to detect X screens)"
+fi
+
 # Enumerate all the attached screens
 displays=""
 while read id; do
     displays="$displays $id"
-done< <(xvinfo | sed -n 's/^screen #\([0-9]\+\)$/\1/p')
+done < <($xinfo | sed -rn 's/^screen #([0-9]+):?$/\1/p')
 
 # Detect screensaver being used
 if [ `dbus-send --session --print-reply=literal --type=method_call --dest=org.freedesktop.ScreenSaver /ScreenSaver/ org.freedesktop.ScreenSaver.GetActive &> /dev/null; echo $?` -eq 0 ]; then
     screensaver="freedesktop-screensaver"
 #elif [ `pgrep -c gnome-shell` -ge 1 ] ;then
 #    screensaver="xdofallback"
-elif [ `pgrep -c xscreensaver` -ge 1 ]; then
+elif [ `$psgrep xscreensaver` -ge 1 ]; then
     screensaver="xscreensaver"
-elif [ `pgrep -c mate-screensaver` -ge 1 ]; then
+elif [ `$psgrep mate-screensaver` -ge 1 ]; then
     screensaver="mate-screensaver"
-elif [ `pgrep -c xautolock` -ge 1 ]; then
+elif [ `$psgrep xautolock` -ge 1 ]; then
     screensaver="xautolock"
 elif [ -e "/usr/bin/xdotool" ]; then
     screensaver="xdofallback"
@@ -134,56 +159,64 @@ checkFullscreen() {
     done
 }
 
+checkWebcam() {
+    fuser -s /dev/video* && delayScreensaver
+}
+
 # Check if active window is mplayer, vlc or firefox
 # Then change IFs to detect more specifically the apps "<vlc>" and if process name exist
 
 isAppRunning() {
     # Get title of active window
     active_win_title=`xprop -id $active_win_id | grep "WM_CLASS(STRING)" | sed 's/^.*", //;s/"//g'`
-    
+
     case "$active_win_title" in
     *[Cc]hromium*)
-        [ "$chromium_flash_detection" = 1 ] && [ `pgrep -fc "chromium --type=ppapi"` -ge 1 ] && return 0
-        [ "$html5_detection" = 1 ] && [ `pgrep -c chromium` -ge 1 ] && checkAudio "chromium" && return 0
+        [ "$chromium_flash_detection" = 1 ] && [ `$psgrep "chromium --type=ppapi"` -ge 1 ] && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep chromium` -ge 1 ] && checkAudio "chromium" && return 0
+        ;;
+    *[Vv]ivaldi*)
+        [ "$chromium_flash_detection" = 1 ] && [ `$psgrep "vivaldi --type=ppapi"` -ge 1 ] && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep vivaldi` -ge 1 ] && checkAudio "vivaldi" && return 0
         ;;
     *[Cc]hrome*)
-        [ "$chromium_flash_detection" = 1 ] && [ `pgrep -fc "chrome --type=ppapi"` -ge 1 ] && return 0
-        [ "$html5_detection" = 1 ] && [ `pgrep -c chrome` -ge 1 ] && checkAudio "chrome" && return 0
+        [ "$chromium_flash_detection" = 1 ] && [ `$psgrep "chrome --type=ppapi"` -ge 1 ] && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep chrome` -ge 1 ] && checkAudio "chrome" && return 0
         ;;
     *Firefox*)
-        [ "$html5_detection" = 1 ] && [ `pgrep -c firefox` -ge 1 ] && checkAudio "firefox" && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep firefox` -ge 1 ] && checkAudio "firefox" && return 0
         ;;
     *opera*)
-        [ "$html5_detection" = 1 ] && [ `pgrep -c opera` -ge 1 ] && checkAudio "opera" && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep opera` -ge 1 ] && checkAudio "opera" && return 0
         ;;
     *epiphany*)
-        [ "$html5_detection" = 1 ] && [ `pgrep -c epiphany` -ge 1 ] && checkAudio "epiphany" && return 0
+        [ "$html5_detection" = 1 ] && [ `$psgrep epiphany` -ge 1 ] && checkAudio "epiphany" && return 0
         ;;
     *unknown*|*plugin-container*)
-        [ "$firefox_flash_detection" = 1 ] && [ `pgrep -c plugin-container` -ge 1 ] && return 0
+        [ "$firefox_flash_detection" = 1 ] && [ `$psgrep plugin-container` -ge 1 ] && return 0
         ;;
     *WebKitPluginProcess*)
-        [ "$webkit_flash_detection" = 1 ] && [ `pgrep -fc ".*WebKitPluginProcess.*flashp.*"` -ge 1 ] && return 0
+        [ "$webkit_flash_detection" = 1 ] && [ `$psgrep ".*WebKitPluginProcess.*flashp.*"` -ge 1 ] && return 0
         ;;
     *MPlayer|mplayer*)
-        [ "$mplayer_detection" = 1 ] && [ `pgrep -c mplayer` -ge 1 ] && checkAudio mplayer && return 0
+        [ "$mplayer_detection" = 1 ] && [ `$psgrep mplayer` -ge 1 ] && checkAudio mplayer && return 0
         ;;
     *vlc*|*VLC*)
-        [ $vlc_detection = 1 ] && [ `pgrep -c vlc` -ge 1 ] && checkAudio vlc && return 0
+        [ $vlc_detection = 1 ] && [ `$psgrep vlc` -ge 1 ] && checkAudio vlc && return 0
         ;;
     *totem*)
-        [ $totem_detection = 1 ] && [ `pgrep -c totem` -ge 1 ] && checkAudio totem && return 0
+        [ $totem_detection = 1 ] && [ `$psgrep totem` -ge 1 ] && checkAudio totem && return 0
         ;;
     *steam*)
-        [ $steam_detection = 1 ] && [ `pgrep -c steam` -ge 1 ] && return 0
+        [ $steam_detection = 1 ] && [ `$psgrep steam` -ge 1 ] && return 0
         ;;
     *minitube*)
-        [ $minitube_detection = 1 ] && [ `pgrep -c minitube` -ge 1 ] && return 0
+        [ $minitube_detection = 1 ] && [ `$psgrep -c minitube` -ge 1 ] && return 0
         ;;
     *)
         if [ -n "$chrome_app_name" ]; then
             # Check if google chrome is running in app mode
-            [[ "$active_win_title" == *$chrome_app_name* ]] && [ `pgrep -fc "chrome --app"` -ge 1 ] && return 0
+            [[ "$active_win_title" == *$chrome_app_name* ]] && [ `$psgrep "chrome --app"` -ge 1 ] && return 0
         fi
         ;;
     esac
@@ -202,18 +235,19 @@ checkAudio() {
 delayScreensaver() {
     # Reset inactivity time counter so screensaver is not started
     case $screensaver in
-    "xscreensaver" )
-        xscreensaver-command -deactivate > /dev/null;;
-    "mate-screensaver" )
-            mate-screensaver-command --poke > /dev/null;;
-    "xautolock" )
-        xautolock -disable
-        xautolock -enable;;
-    "xdofallback" )
-        xdotool key shift
+        xscreensaver )
+            xscreensaver-command -deactivate > /dev/null
         ;;
-    "freedesktop-screensaver" )
-        dbus-send --session --reply-timeout=2000 --type=method_call --dest=org.freedesktop.ScreenSaver /ScreenSaver org.freedesktop.ScreenSaver.SimulateUserActivity;;
+        "mate-screensaver" )
+            mate-screensaver-command --poke > /dev/null
+        ;;
+        xautolock|xdofallback )
+            # Left Shift key press/release
+            xdo key_press -k 50 && sleep 0.02 && xdo key_release -k 50
+        ;;
+        "freedesktop-screensaver" )
+            dbus-send --session --reply-timeout=2000 --type=method_call --dest=org.freedesktop.ScreenSaver /ScreenSaver org.freedesktop.ScreenSaver.SimulateUserActivity
+        ;;
     esac
     
     # Check if DPMS is on. If it is, deactivate and reactivate again. If it is not, do nothing.
@@ -227,6 +261,7 @@ help() {
     echo ""
     echo "  -d,  --delay            Time interval in minutes, default is 1 min"
     echo "  -pa, --audio            Audio detection"
+    echo "  -w,  --webcam           Webcam detection"
     echo "  -mp, --mplayer          mplayer detection"
     echo "  -v,  --vlc              VLC detection"
     echo "  -t,  --totem            Totem detection"
@@ -246,7 +281,7 @@ checkBool() {
 
 while [ -n "$1" ]; do
     case $1 in
-       "-d" | "--delay" )
+        "-d" | "--delay" )
             [[ -z "$2" || "$2" = *[^0-9]* ]] && die "Invalid argument. Time in minutes expected after \"$1\" flag. Got \"$2\"" || delay=$2;;
         "-ca" | "--chrome-app" )
             [ -n "$2" ] && chrome_app_name="$2" || die "Missing argument. Chrome app name expected after \"$1\" flag.";;
@@ -254,7 +289,9 @@ while [ -n "$1" ]; do
             [ -n "$2" ] && [[ "$(echo "$2 > 0" | bc -q)" -eq 1 ]] && minload=$2 || die "Invalid argument. >0 expected after \"$1\" flag.";;
         "-pa" | "--audio" )
             checkBool "$@"; audio_detection=$2;;
-       "-mp" | "--mplayer" )
+        "-w" | "--webcam" )
+            checkBool "$@"; webcam_detection=$2;;
+        "-mp" | "--mplayer" )
             checkBool "$@"; mplayer_detection=$2;;
         "-v" | "--vlc" )
             checkBool "$@"; vlc_detection=$2;;
@@ -284,9 +321,9 @@ done
 
 # Convert delay to seconds. We substract 10 for assurance.
 delay=$[delay*60-10]
-echo "Start lightson+ mainloop"
+echo "Start lightson++ mainloop"
 while true; do
-    [ -f "$inhibitfile" ] && delayScreensaver || checkFullscreen
+    [ -f "$inhibitfile" ] && delayScreensaver || checkFullscreen && checkWebcam
     sleep $delay
 done
 
