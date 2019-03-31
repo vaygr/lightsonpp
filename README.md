@@ -1,0 +1,2 @@
+- lightson++: daemon which checks if screensaver should be inhibited
+- lightson++cmd: tool which inhibits screensaver manually
