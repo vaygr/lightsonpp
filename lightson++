@@ -323,7 +323,7 @@ done
 delay=$[delay*60-10]
 echo "Start lightson++ mainloop"
 while true; do
-    [ -f "$inhibitfile" ] && delayScreensaver || checkFullscreen && checkWebcam
+    [ -f "$inhibitfile" ] && delayScreensaver || (checkFullscreen; checkWebcam)
     sleep $delay
 done
 
